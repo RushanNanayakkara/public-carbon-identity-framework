@@ -382,6 +382,16 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
                             String retryParam =
                                     "&authFailure=true&authFailureMsg=error.user.account.locked&errorCode=" +
                                             UserCoreConstants.ErrorCode.USER_IS_LOCKED;
+                            // Check if the associated local account is pending verification.
+                            if (isPendingAccountVerification(associatedLocalUser, context.getTenantDomain())) {
+                                if (log.isDebugEnabled()) {
+                                    log.debug(String.format("The email is not verified for the user: %s in the " +
+                                            "tenant domain: %s ", associatedLocalUser, context.getTenantDomain()));
+                                }
+                                retryParam =
+                                        "&authFailure=true&authFailureMsg=account.confirmation.pending&errorCode=" +
+                                                IdentityCoreConstants.USER_ACCOUNT_NOT_CONFIRMED_ERROR_CODE;
+                            }
                             handleAccountLockLoginFailure(retryURL, context, response, retryParam);
                             return PostAuthnHandlerFlowStatus.INCOMPLETE;
                         }
@@ -507,20 +517,53 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
         return false;
     }
 
+    /**
+     * Check whether the user account is pending email verification.
+     *
+     * @param username     Username.
+     * @param tenantDomain Tenant domain.
+     * @return Whether user is pending email verification or not.
+     * @throws PostAuthenticationFailedException If error occurred while checking pending email verification status.
+     */
+    private boolean isPendingAccountVerification(String username, String tenantDomain)
+            throws PostAuthenticationFailedException {
+
+        try {
+            UserRealm realm = (UserRealm) FrameworkServiceDataHolder.getInstance().getRealmService()
+                    .getTenantUserRealm(IdentityTenantUtil.getTenantId(tenantDomain));
+            UserStoreManager userStoreManager = realm.getUserStoreManager();
+            Map<String, String> claimValues = userStoreManager.getUserClaimValues(username, new String[]{
+                    FrameworkConstants.ACCOUNT_STATE_CLAIM_URI}, UserCoreConstants.DEFAULT_PROFILE);
+            if (claimValues != null && !claimValues.isEmpty()) {
+                String accountStateClaim = claimValues.get(FrameworkConstants.ACCOUNT_STATE_CLAIM_URI);
+                return StringUtils.isNotBlank(accountStateClaim) && (
+                        accountStateClaim.equals(FrameworkConstants.AccountStatus.PENDING_LR) ||
+                                accountStateClaim.equals(FrameworkConstants.AccountStatus.PENDING_EV) ||
+                                accountStateClaim.equals(FrameworkConstants.AccountStatus.PENDING_SR));
+            }
+        } catch (UserStoreException e) {
+            throw new PostAuthenticationFailedException(
+                    ErrorMessages.ERROR_WHILE_CHECKING_PENDING_VERIFICATION_STATUS.getCode(),
+                    String.format(ErrorMessages.ERROR_WHILE_CHECKING_PENDING_VERIFICATION_STATUS.getMessage(),
+                            username), e);
+        }
+        return false;
+    }
+
     private void handleAccountLockLoginFailure(String retryPage, AuthenticationContext context,
                                                HttpServletResponse response, String retryParam)
             throws PostAuthenticationFailedException {
 
         try {
-            // ToDo: Add support to configure enable/disable authentication failure reason.
-            boolean showAuthFailureReason = true;
             retryPage = FrameworkUtils.appendQueryParamsStringToUrl(retryPage,
                     "sp=" + context.getServiceProviderName());
             retryPage = FrameworkUtils.appendQueryParamsStringToUrl(retryPage,
                     String.format("%s=", FrameworkConstants.REQUEST_PARAM_AUTH_FLOW_ID)
                             + context.getContextIdentifier());
-            if (!showAuthFailureReason) {
-                retryParam = "&authFailure=true&authFailureMsg=login.fail.message";
+            if (!doShowFailureReason()) {
+                retryParam =
+                        "&authFailure=true&authFailureMsg=login.failed.generic&errorCode=" +
+                                IdentityCoreConstants.LOGIN_FAILED_GENERIC_ERROR_CODE;
             }
             retryPage = FrameworkUtils.appendQueryParamsStringToUrl(retryPage, retryParam);
             context.setRetrying(false);
@@ -1155,5 +1198,15 @@ public class JITProvisioningPostAuthenticationHandler extends AbstractPostAuthnH
             throw new FrameworkException("Error while retrieving app associated roles for application: "
                     + applicationId, e);
         }
+    }
+
+    /**
+     * To check whether to show the authentication failure reason or not.
+     *
+     * @return Show authentication failure reason or not.
+     */
+    private boolean doShowFailureReason() {
+
+        return Boolean.parseBoolean(IdentityUtil.getProperty(FrameworkConstants.Config.SHOW_FAILURE_REASON));
     }
 }

@@ -81,6 +81,8 @@ public class FrameworkErrorConstants {
         INVALID_EMAIL_DOMAIN("80033",
                 "Email domain resolved from the authenticated federated IDP is not mapped to the organization: %s"),
         NO_EMAIL_ATTRIBUTE_FOUND("80034", "No email attribute returned by the authenticated federated IDP"),
+        ERROR_WHILE_CHECKING_PENDING_VERIFICATION_STATUS("80035",
+                "Error while checking the pending verification status for the user %s"),
         MISMATCHING_TENANT_DOMAIN("AFW-60001",
                 "Service Provider tenant domain must be equal to user tenant domain for non-SaaS applications"),
         SYSTEM_ERROR_WHILE_AUTHENTICATING("AFW-65001", "System error while authenticating");
